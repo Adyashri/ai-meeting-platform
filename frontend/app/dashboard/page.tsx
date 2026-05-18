@@ -1,12 +1,9 @@
 "use client";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [meetingId, setMeetingId] = useState("");
-
   return (
     <div className="min-h-screen bg-gray-100">
       <Navbar />
@@ -29,8 +26,7 @@ export default function DashboardPage() {
           <div className="bg-white p-6 rounded-xl shadow">
             <h2 className="text-xl font-semibold mb-2">⚡ Quick Join</h2>
             <input type="text" placeholder="Enter meeting ID"
-              className="w-full border p-2 rounded-lg mt-2"
-              onChange={(e) => setMeetingId(e.target.value)}/>
+              className="w-full border p-2 rounded-lg mt-2"/>
             <button onClick={() => router.push("/meeting")}
               className="w-full bg-green-500 text-white p-2 rounded-lg mt-3">
               Join Now
