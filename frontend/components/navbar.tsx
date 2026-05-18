@@ -10,9 +10,17 @@ export default function Navbar() {
       </h1>
       <div className="flex gap-4 items-center">
         <button onClick={() => router.push("/dashboard")}
-          className="hover:underline">Dashboard</button>
+          className="hover:underline">
+          Dashboard
+        </button>
         <button onClick={() => router.push("/meeting")}
-          className="hover:underline">Join Meeting</button>
+          className="hover:underline">
+          Join Meeting
+        </button>
+        <button onClick={() => router.push("/profile")}
+          className="hover:underline">
+          Profile
+        </button>
         <button onClick={() => router.push("/login")}
           className="bg-white text-blue-600 px-4 py-1 rounded font-semibold">
           Logout
