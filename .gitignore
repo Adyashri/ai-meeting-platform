@@ -1,11 +1,17 @@
-venv/
-backend/venv/
-
+# Python
 __pycache__/
 *.pyc
-
+*.pyo
+*.pyd
 .env
-backend/.env
+venv/
+*.zip
 
+# Node
 node_modules/
 .next/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
