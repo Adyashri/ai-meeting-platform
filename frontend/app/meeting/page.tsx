@@ -2,311 +2,408 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { io, Socket } from "socket.io-client";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const WS_BASE  = API_BASE.replace("https://", "wss://").replace("http://", "ws://");
+
+type Participant = {
+  sid:       string;
+  user_name: string;
+  user_id:   string;
+};
+
+type ChatMessage = {
+  user_name: string;
+  message:   string;
+  timestamp: string;
+};
 
 export default function MeetingPage() {
-  const router = useRouter();
+  const router       = useRouter();
   const searchParams = useSearchParams();
 
   const meetingId = searchParams.get("id");
   const roomCode  = searchParams.get("code");
 
-  const [meetingStatus, setMeetingStatus] = useState("scheduled");
-  const [isRecording, setIsRecording]     = useState(false);
-  const [transcript, setTranscript]       = useState<string[]>([]);
-  const [status, setStatus]               = useState("");
-  const [loading, setLoading]             = useState(false);
+  const [meetingStatus,  setMeetingStatus]  = useState("scheduled");
+  const [isRecording,    setIsRecording]    = useState(false);
+  const [transcript,     setTranscript]     = useState<string[]>([]);
+  const [status,         setStatus]         = useState("");
+  const [loading,        setLoading]        = useState(false);
+  const [participants,   setParticipants]   = useState<Participant[]>([]);
+  const [chatMessages,   setChatMessages]   = useState<ChatMessage[]>([]);
+  const [chatInput,      setChatInput]      = useState("");
+  const [socketConnected, setSocketConnected] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const websocketRef     = useRef<WebSocket | null>(null);
-  const chunksRef        = useRef<Blob[]>([]);
+  const streamRef        = useRef<MediaStream | null>(null);
+  const socketRef        = useRef<Socket | null>(null);
 
+  const userName = typeof window !== "undefined"
+    ? localStorage.getItem("userName") || "Unknown"
+    : "Unknown";
+  const userId = typeof window !== "undefined"
+    ? localStorage.getItem("userId") || ""
+    : "";
+
+  // Socket.io connect
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (!token) router.push("/login");
-  }, []);
+    if (!token) { router.push("/login"); return; }
+    if (!roomCode) return;
+
+    const socket = io(API_BASE, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+    });
+
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      console.log("[Socket] Connected:", socket.id);
+      setSocketConnected(true);
+
+      // Room join karo
+      socket.emit("join_room", {
+        room_code: roomCode,
+        user_name: userName,
+        user_id:   userId,
+      });
+    });
+
+    socket.on("disconnect", () => {
+      setSocketConnected(false);
+    });
+
+    socket.on("room_joined", (data: any) => {
+      console.log("[Socket] Room joined:", data);
+      setParticipants(data.participants || []);
+    });
+
+    socket.on("user_joined", (data: any) => {
+      console.log("[Socket] User joined:", data.user_name);
+      setParticipants(data.participants || []);
+      setStatus(`${data.user_name} joined the meeting`);
+    });
+
+    socket.on("user_left", (data: any) => {
+      console.log("[Socket] User left:", data.user_name);
+      setParticipants(data.participants || []);
+      setStatus(`${data.user_name} left the meeting`);
+    });
+
+    socket.on("new_message", (data: ChatMessage) => {
+      setChatMessages(prev => [...prev, data]);
+    });
+
+    socket.on("meeting_ended", () => {
+      setStatus("Meeting has ended!");
+      setMeetingStatus("ended");
+    });
+
+    socket.on("error", (data: any) => {
+      console.error("[Socket] Error:", data.message);
+    });
+
+    return () => {
+      socket.emit("leave_room", { room_code: roomCode });
+      socket.disconnect();
+    };
+  }, [roomCode]);
 
   const startMeeting = async () => {
     if (!meetingId) return;
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        `http://localhost:8000/meeting/start/${meetingId}`,
-        {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${token}` }
-        }
-      );
+      const res   = await fetch(`${API_BASE}/meeting/start/${meetingId}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
-      if (res.ok) {
-        setMeetingStatus("active");
-        setStatus("Meeting started!");
-      } else {
-        alert(data.detail);
-      }
-    } catch (e) {
-      alert("Server error!");
-    } finally {
-      setLoading(false);
+      if (res.ok) { setMeetingStatus("active"); setStatus("Meeting started!"); }
+      else alert(data.detail || "Meeting start failed");
+    } catch { alert("Server error!"); }
+    finally { setLoading(false); }
+  };
+
+  const startRecording = async () => {
+    if (!meetingId || isRecording) return;
+    try {
+      setStatus("Requesting microphone...");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const ws = new WebSocket(
+        `${WS_BASE}/transcription/ws/${meetingId}?speaker_name=${encodeURIComponent(userName)}`
+      );
+
+      ws.onopen    = () => setStatus("Recording started... speak now!");
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.text) setTranscript(prev => [...prev, `[${data.speaker}]: ${data.text}`]);
+        } catch {}
+      };
+      ws.onerror = () => setStatus("Transcription connection error!");
+      websocketRef.current = ws;
+
+      let mimeType = "";
+      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) mimeType = "audio/webm;codecs=opus";
+      else if (MediaRecorder.isTypeSupported("audio/webm"))        mimeType = "audio/webm";
+
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      mediaRecorder.ondataavailable = async (event) => {
+        if (!event.data || event.data.size === 0) return;
+        if (websocketRef.current?.readyState === WebSocket.OPEN) {
+          const buf = await event.data.arrayBuffer();
+          websocketRef.current.send(buf);
+        }
+      };
+
+      mediaRecorder.start(10000);
+      mediaRecorderRef.current = mediaRecorder;
+      setIsRecording(true);
+      setStatus("Recording... speak now!");
+    } catch {
+      alert("Please allow microphone access in browser.");
+      setStatus("");
     }
+  };
+
+  const stopRecordingOnly = async () => {
+    try {
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== "inactive") {
+        try { recorder.requestData(); } catch {}
+        await new Promise(r => setTimeout(r, 500));
+        recorder.stop();
+      }
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+      await new Promise(r => setTimeout(r, 1200));
+      if (websocketRef.current?.readyState === WebSocket.OPEN) {
+        websocketRef.current.close();
+      }
+      mediaRecorderRef.current = null;
+      websocketRef.current     = null;
+      setIsRecording(false);
+      setStatus("Recording stopped!");
+    } catch { setStatus("Error while stopping recording"); }
   };
 
   const endMeeting = async () => {
     if (!meetingId) return;
-    
-    // Recording band karo pehle
-    if (isRecording) stopRecording();
-    
+    if (isRecording) {
+      await stopRecordingOnly();
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    // Socket se sabko batao
+    if (socketRef.current && roomCode) {
+      socketRef.current.emit("meeting_ended", { room_code: roomCode });
+    }
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        `http://localhost:8000/meeting/end/${meetingId}`,
-        {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${token}` }
-        }
-      );
+      const res   = await fetch(`${API_BASE}/meeting/end/${meetingId}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         setMeetingStatus("ended");
-        alert("Meeting ended! Ab MOM generate karo.");
-        router.push(
-          `/mom?meeting_id=${meetingId}`
-        );
+        setStatus("Meeting ended!");
+        router.push(`/mom?meeting_id=${meetingId}`);
+      } else {
+        const data = await res.json();
+        alert(data.detail || "Meeting end failed");
       }
-    } catch (e) {
-      alert("Server error!");
-    } finally {
-      setLoading(false);
-    }
+    } catch { alert("Server error!"); }
+    finally { setLoading(false); }
   };
 
-  const startRecording = async () => {
-    try {
-      // Microphone permission lo
-      const stream = await navigator.mediaDevices.getUserMedia(
-        { audio: true }
-      );
-
-      // WebSocket se backend se connect karo
-      const userName = localStorage.getItem("userName") || "Unknown";
-      const ws = new WebSocket(
-        `ws://localhost:8000/transcription/ws/${meetingId}?speaker_name=${userName}`
-      );
-
-      ws.onopen = () => {
-        console.log("Transcription connected!");
-        setStatus("Recording started...");
-      };
-
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        // Transcript mein add karo
-        setTranscript(prev => [
-          ...prev,
-          `[${data.speaker}]: ${data.text}`
-        ]);
-      };
-
-      ws.onerror = (e) => {
-        console.error("WebSocket error:", e);
-        setStatus("Transcription error!");
-      };
-
-      websocketRef.current = ws;
-
-      // MediaRecorder setup
-      const mediaRecorder = new MediaRecorder(stream, {
-  mimeType: "audio/webm"
-});
-      mediaRecorderRef.current = mediaRecorder;
-
-      // Har 5 second mein audio chunk bhejo
-      mediaRecorder.ondataavailable = async (event) => {
-        if (
-          event.data.size > 0 &&
-          ws.readyState === WebSocket.OPEN
-        ) {
-          const arrayBuffer = await event.data.arrayBuffer();
-          ws.send(arrayBuffer);
-        }
-      };
-
-      // Har 5 second mein chunk banao
-      mediaRecorder.start(10000);
-      setIsRecording(true);
-      setStatus("Recording... Bolo!");
-
-    } catch (error) {
-      alert(
-        "Microphone access nahi mila! " +
-        "Browser mein microphone allow karo."
-      );
-      console.error(error);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream
-        .getTracks()
-        .forEach(track => track.stop());
-    }
-    if (websocketRef.current) {
-      setTimeout(() => {
-  websocketRef.current?.close();
-}, 2000);
-    }
-    setIsRecording(false);
-    setStatus("Recording stopped!");
+  const sendChat = () => {
+    if (!chatInput.trim() || !roomCode || !socketRef.current) return;
+    socketRef.current.emit("send_chat", {
+      room_code: roomCode,
+      message:   chatInput.trim(),
+      user_name: userName,
+    });
+    setChatInput("");
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-8">
-
-      {/* Back Button */}
-      <button
-        onClick={() => router.push("/dashboard")}
-        className="mb-6 text-gray-400 hover:text-white"
-      >
-        ← Back to Dashboard
-      </button>
-
-      <h1 className="text-3xl font-bold mb-2">
-        Meeting Room
-      </h1>
-
-      {/* Room Info */}
-      {roomCode && (
-        <div className="bg-gray-800 p-4 rounded-xl mb-6 
-                        flex justify-between items-center">
-          <div>
-            <p className="text-gray-400 text-sm">Room Code</p>
-            <p className="text-2xl font-bold text-white">
-              {roomCode}
-            </p>
+    <div className="min-h-screen p-6" style={{ background: "#0f1117" }}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Meeting Room</h1>
+          <div className="flex items-center gap-3 mt-1">
+            {roomCode && (
+              <span className="text-xs px-2.5 py-1 rounded-lg font-mono"
+                    style={{ background: "#252c3f", color: "#6b7fff" }}>
+                {roomCode}
+              </span>
+            )}
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full"
+                   style={{ background: socketConnected ? "#22c55e" : "#ef4444" }} />
+              <span className="text-xs" style={{ color: "#8892a4" }}>
+                {socketConnected ? "Connected" : "Connecting..."}
+              </span>
+            </div>
           </div>
-          {/* Status Badge */}
-          <span className={`px-4 py-2 rounded-full font-bold ${
-            meetingStatus === "active"
-              ? "bg-green-500"
-              : meetingStatus === "ended"
-              ? "bg-red-500"
-              : "bg-yellow-500 text-black"
-          }`}>
-            {meetingStatus === "active"
-              ? "LIVE"
-              : meetingStatus === "ended"
-              ? "Ended"
-              : "Scheduled"}
-          </span>
         </div>
-      )}
-
-      {/* Control Buttons */}
-      <div className="flex gap-4 mb-6 flex-wrap">
-
-        {/* Start Meeting */}
-        {meetingId && meetingStatus === "scheduled" && (
-          <button
-            onClick={startMeeting}
-            disabled={loading}
-            className="bg-green-600 hover:bg-green-700
-                       px-6 py-3 rounded-lg font-bold
-                       disabled:opacity-50"
-          >
-            {loading ? "Starting..." : "Start Meeting"}
-          </button>
-        )}
-
-        {/* Start Recording */}
-        {meetingStatus === "active" && !isRecording && (
-          <button
-            onClick={startRecording}
-            className="bg-red-600 hover:bg-red-700
-                       px-6 py-3 rounded-lg font-bold
-                       flex items-center gap-2"
-          >
-            🎤 Start Recording
-          </button>
-        )}
-
-        {/* Stop Recording */}
-        {isRecording && (
-          <button
-            onClick={stopRecording}
-            className="bg-gray-600 hover:bg-gray-700
-                       px-6 py-3 rounded-lg font-bold
-                       animate-pulse"
-          >
-            ⏹ Stop Recording
-          </button>
-        )}
-
-        {/* End Meeting */}
-        {meetingId && meetingStatus === "active" && (
-          <button
-            onClick={endMeeting}
-            disabled={loading}
-            className="bg-red-800 hover:bg-red-900
-                       px-6 py-3 rounded-lg font-bold
-                       disabled:opacity-50"
-          >
-            {loading ? "Ending..." : "End Meeting"}
-          </button>
-        )}
-
-        {/* Go to Dashboard */}
-        <button
-          onClick={() => router.push("/dashboard")}
-          className="bg-gray-600 hover:bg-gray-700
-                     px-6 py-3 rounded-lg font-bold"
-        >
-          Go to Dashboard
+        <button onClick={() => router.push("/dashboard")}
+          className="px-4 py-2 rounded-xl text-sm font-medium text-white hover:opacity-80"
+          style={{ background: "#1e2436", border: "1px solid #2a3450" }}>
+          ← Dashboard
         </button>
-
       </div>
 
-      {/* Status Message */}
+      {/* Status */}
       {status && (
-        <div className="bg-blue-900 border border-blue-500 
-                        p-3 rounded-lg mb-6">
-          <p className="text-blue-300 font-medium">
-            {status}
-          </p>
+        <div className="mb-5 px-4 py-3 rounded-xl text-sm font-medium"
+             style={{ background: "rgba(58,79,247,0.15)", border: "1px solid rgba(58,79,247,0.3)", color: "#6b7fff" }}>
+          {status}
         </div>
       )}
 
-      {/* Live Transcript */}
-      {transcript.length > 0 && (
-        <div className="bg-gray-800 p-6 rounded-xl">
-          <h2 className="text-xl font-bold mb-4">
-            Live Transcript
-          </h2>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {transcript.map((line, i) => (
-              <p
-                key={i}
-                className="text-gray-300 text-sm 
-                           border-l-2 border-blue-500 pl-3"
-              >
-                {line}
-              </p>
-            ))}
+      <div className="grid grid-cols-3 gap-5">
+        {/* Left — Controls + Transcript */}
+        <div className="col-span-2 space-y-5">
+          {/* Controls */}
+          <div className="p-5 rounded-2xl" style={{ background: "#161a24", border: "1px solid #1e2436" }}>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-3 h-3 rounded-full" style={{
+                background: meetingStatus === "active" ? "#22c55e"
+                          : meetingStatus === "ended"  ? "#ef4444" : "#f59e0b"
+              }} />
+              <span className="text-sm font-medium text-white capitalize">{meetingStatus}</span>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              {meetingStatus === "scheduled" && (
+                <button onClick={startMeeting} disabled={loading}
+                  className="px-5 py-2.5 rounded-xl font-semibold text-sm text-white disabled:opacity-50"
+                  style={{ background: "linear-gradient(135deg, #3a4ff7 0%, #5c69fa 100%)" }}>
+                  {loading ? "Starting..." : "▶ Start Meeting"}
+                </button>
+              )}
+              {meetingStatus === "active" && !isRecording && (
+                <button onClick={startRecording}
+                  className="px-5 py-2.5 rounded-xl font-semibold text-sm text-white hover:opacity-80"
+                  style={{ background: "#22c55e" }}>
+                  🎙 Start Recording
+                </button>
+              )}
+              {meetingStatus === "active" && isRecording && (
+                <button onClick={stopRecordingOnly}
+                  className="px-5 py-2.5 rounded-xl font-semibold text-sm text-white hover:opacity-80"
+                  style={{ background: "#f59e0b" }}>
+                  ⏹ Stop Recording
+                </button>
+              )}
+              {meetingStatus === "active" && (
+                <button onClick={endMeeting} disabled={loading}
+                  className="px-5 py-2.5 rounded-xl font-semibold text-sm text-white disabled:opacity-50"
+                  style={{ background: "#ef4444" }}>
+                  {loading ? "Ending..." : "⬛ End Meeting"}
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* MOM Generate Button */}
-          <button
-            onClick={() => router.push(`/mom?meeting_id=${meetingId}`)}
-            className="mt-4 bg-blue-600 hover:bg-blue-700
-                       px-6 py-3 rounded-lg font-bold w-full"
-          >
-            Generate MOM from Transcript
-          </button>
+          {/* Live Transcript */}
+          <div className="p-5 rounded-2xl" style={{ background: "#161a24", border: "1px solid #1e2436" }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-white">Live Transcript</h2>
+              {isRecording && (
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#ef4444" }} />
+                  <span className="text-xs" style={{ color: "#ef4444" }}>Recording</span>
+                </div>
+              )}
+            </div>
+            {transcript.length === 0 ? (
+              <p className="text-sm py-6 text-center" style={{ color: "#8892a4" }}>
+                {isRecording ? "Listening... start speaking!" : "Start recording to see live transcript."}
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {transcript.map((line, i) => (
+                  <div key={i} className="p-3 rounded-xl text-sm"
+                       style={{ borderLeft: "3px solid #3a4ff7", background: "#1e2436", color: "#e8eaf0" }}>
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      )}
 
+        {/* Right — Participants + Chat */}
+        <div className="space-y-5">
+          {/* Participants */}
+          <div className="p-5 rounded-2xl" style={{ background: "#161a24", border: "1px solid #1e2436" }}>
+            <h2 className="text-sm font-semibold text-white mb-3">
+              Participants ({participants.length})
+            </h2>
+            {participants.length === 0 ? (
+              <p className="text-xs" style={{ color: "#8892a4" }}>No one yet</p>
+            ) : (
+              <div className="space-y-2">
+                {participants.map((p, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                         style={{ background: "rgba(58,79,247,0.25)", color: "#6b7fff" }}>
+                      {p.user_name?.[0]?.toUpperCase() || "U"}
+                    </div>
+                    <span className="text-xs text-white truncate">{p.user_name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Chat */}
+          <div className="p-5 rounded-2xl flex flex-col" style={{ background: "#161a24", border: "1px solid #1e2436", minHeight: "280px" }}>
+            <h2 className="text-sm font-semibold text-white mb-3">Meeting Chat</h2>
+            <div className="flex-1 space-y-2 max-h-48 overflow-y-auto mb-3">
+              {chatMessages.length === 0 ? (
+                <p className="text-xs" style={{ color: "#8892a4" }}>No messages yet</p>
+              ) : (
+                chatMessages.map((msg, i) => (
+                  <div key={i} className="text-xs">
+                    <span style={{ color: "#6b7fff" }}>{msg.user_name}: </span>
+                    <span className="text-white">{msg.message}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Type a message..."
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && sendChat()}
+                className="flex-1 rounded-xl px-3 py-2 text-xs text-white placeholder:text-[#4a5568]"
+                style={{ background: "#252c3f", border: "1px solid #1e2436" }}
+              />
+              <button onClick={sendChat}
+                className="px-3 py-2 rounded-xl text-xs font-semibold text-white hover:opacity-80"
+                style={{ background: "#3a4ff7" }}>
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

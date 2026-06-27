@@ -1,21 +1,36 @@
-from dotenv import load_dotenv
-import os
+from functools import lru_cache
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-load_dotenv()
 
-class Settings:
-    DATABASE_URL = os.getenv("DATABASE_URL")
-    SECRET_KEY = os.getenv("SECRET_KEY", "mysecretkey123456789")
-    ALGORITHM = os.getenv("ALGORITHM", "HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES = int(
-        os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60")
+class Settings(BaseSettings):
+    DATABASE_URL: str = "postgresql://postgres:Postgres123@localhost:5432/ai_meeting_db"
+    SECRET_KEY: str = "mysecretkey123456789"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    SESSION_SECRET_KEY: str = "mysessionsecret123456789"
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    GEMINI_API_KEY: str = ""
+
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/auth/google/callback"
+
+    SMTP_EMAIL: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_FROM_NAME: str = "AI Meeting Platform"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore"
     )
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-    WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
-    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-settings = Settings()
 
-# get_settings function — whisper_service ke liye zaroori
-def get_settings():
-    return settings
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

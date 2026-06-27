@@ -1,121 +1,173 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Depends, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from typing import Optional
 from app.database import SessionLocal
 from app.models.transcript import Transcript
-from app.services.whisper_service import transcribe_audio
+from app.models.meeting import Meeting
+from app.models.user import User
+from app.routers.auth import get_current_user
 import json
 import time
 
 router = APIRouter()
 
+
+class TranscriptCreate(BaseModel):
+    meeting_id:   str
+    speaker_name: Optional[str] = "Unknown"
+    text:         str
+    start_time:   Optional[float] = 0
+    end_time:     Optional[float] = 0
+    language:     Optional[str]   = "en"
+
+
+def serialize_transcript(row: Transcript):
+    return {
+        "id":           str(row.id),
+        "meeting_id":   str(row.meeting_id),
+        "speaker_name": row.speaker_name,
+        "text":         row.text,
+        "start_time":   row.start_time,
+        "end_time":     row.end_time,
+        "language":     row.language,
+        "created_at":   row.created_at.isoformat() if row.created_at else None
+    }
+
+
+# ── WebSocket — Live Transcription ───────────────────────────
 @router.websocket("/ws/{meeting_id}")
-async def live_transcription(
+async def transcription_websocket(
     websocket: WebSocket,
     meeting_id: str,
     speaker_name: str = "Unknown"
 ):
     await websocket.accept()
-
-    db = SessionLocal()
-
+    db         = SessionLocal()
     start_time = time.time()
-
     print(f"Transcription started: Meeting {meeting_id}")
 
     try:
-
+        from app.services.whisper_service import transcribe_audio
         while True:
-
             audio_data = await websocket.receive_bytes()
-
             if not audio_data:
                 continue
 
             elapsed = time.time() - start_time
-
-            # Whisper transcription
-            result = transcribe_audio(audio_data)
-
-            text = result.get("text", "").strip()
-
-            print("TRANSCRIBED TEXT:", text)
+            result  = transcribe_audio(audio_data)
+            text    = result.get("text", "").strip()
 
             if not text:
                 continue
 
-            segments = result.get("segments", [])
-
-            # Agar segments available hain
-            if segments:
-
-                for seg in segments:
-
-                    transcript = Transcript(
-                        meeting_id=meeting_id,
-                        speaker_name=speaker_name,
-                        text=seg["text"].strip(),
-                        start_time=elapsed + seg["start"],
-                        end_time=elapsed + seg["end"],
-                        language=result.get("language", "en"),
-                    )
-
-                    db.add(transcript)
-
-            # Agar segments empty hain
-            else:
-
-                transcript = Transcript(
-                    meeting_id=meeting_id,
-                    speaker_name=speaker_name,
-                    text=text,
-                    start_time=elapsed,
-                    end_time=elapsed + 5,
-                    language=result.get("language", "en"),
+            for seg in result.get("segments", []):
+                seg_text = seg.get("text", "").strip()
+                if not seg_text:
+                    continue
+                t = Transcript(
+                    meeting_id   = meeting_id,
+                    speaker_name = speaker_name,
+                    text         = seg_text,
+                    start_time   = elapsed + seg.get("start", 0),
+                    end_time     = elapsed + seg.get("end",   0),
+                    language     = result.get("language", "en"),
                 )
-
-                db.add(transcript)
-
-            # Database save
+                db.add(t)
             db.commit()
+            print(f"Transcript saved: {text[:50]}")
 
-            print("Transcript saved!")
-
-            # Frontend ko transcript bhejo
-            await websocket.send_text(
-                json.dumps({
-                    "text": text,
-                    "speaker": speaker_name,
-                    "timestamp": round(elapsed, 2),
-                    "language": result.get("language", "en"),
-                })
-            )
+            await websocket.send_text(json.dumps({
+                "text":      text,
+                "speaker":   speaker_name,
+                "timestamp": round(elapsed, 2),
+                "language":  result.get("language", "en"),
+            }))
 
     except WebSocketDisconnect:
-
         print(f"Disconnected: Meeting {meeting_id}")
-
     except Exception as e:
-
-        print(f"Error: {e}")
-
+        print(f"WebSocket error: {e}")
     finally:
-
         db.close()
 
 
-@router.get("/{meeting_id}")
-def get_transcript(meeting_id: str):
-
+# ── REST — Save Transcript ────────────────────────────────────
+@router.post("/save")
+def save_transcript(
+    data: TranscriptCreate,
+    current_user: User = Depends(get_current_user)
+):
     db = SessionLocal()
-
     try:
+        meeting = db.query(Meeting).filter(
+            Meeting.id == data.meeting_id
+        ).first()
+        if not meeting:
+            raise HTTPException(404, "Meeting not found")
 
-        transcripts = db.query(Transcript).filter(
-            Transcript.meeting_id == meeting_id
-        ).order_by(Transcript.start_time).all()
+        t = Transcript(
+            meeting_id   = data.meeting_id,
+            speaker_name = data.speaker_name or "Unknown",
+            text         = data.text.strip(),
+            start_time   = data.start_time or 0,
+            end_time     = data.end_time   or 0,
+            language     = data.language   or "en",
+        )
+        db.add(t)
+        db.commit()
+        db.refresh(t)
 
-        return transcripts
-
+        return {
+            "message":    "Transcript saved successfully",
+            "transcript": serialize_transcript(t)
+        }
     finally:
-
         db.close()
 
+
+# ── REST — Get Transcript ─────────────────────────────────────
+@router.get("/{meeting_id}")
+def get_transcript(
+    meeting_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    db = SessionLocal()
+    try:
+        transcripts = (
+            db.query(Transcript)
+            .filter(Transcript.meeting_id == meeting_id)
+            .order_by(Transcript.start_time.asc())
+            .all()
+        )
+        return {
+            "meeting_id":  meeting_id,
+            "count":       len(transcripts),
+            "transcripts": [serialize_transcript(t) for t in transcripts]
+        }
+    finally:
+        db.close()
+
+
+# ── REST — Delete Transcript ──────────────────────────────────
+@router.delete("/{meeting_id}")
+def delete_transcript(
+    meeting_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    db = SessionLocal()
+    try:
+        meeting = db.query(Meeting).filter(
+            Meeting.id == meeting_id
+        ).first()
+        if not meeting:
+            raise HTTPException(404, "Meeting not found")
+        if str(meeting.host_id) != str(current_user.id):
+            raise HTTPException(403, "Only host can delete transcript")
+
+        db.query(Transcript).filter(
+            Transcript.meeting_id == meeting_id
+        ).delete()
+        db.commit()
+        return {"message": "Transcript deleted successfully"}
+    finally:
+        db.close()

@@ -7,15 +7,13 @@ export default function Navbar() {
 
   const handleLogout = () => {
     localStorage.clear();
-    router.push("/login");
+    router.replace("/login");
   };
 
   return (
-    <nav className="bg-blue-600 text-white p-4 flex 
-                    justify-between items-center">
-      <h1 className="text-xl font-bold">
-        AI Meeting Platform
-      </h1>
+    <nav className="bg-blue-600 text-white p-4 flex justify-between items-center">
+      <h1 className="text-xl font-bold">AI Meeting Platform</h1>
+
       <div className="flex gap-4 items-center">
         <button
           onClick={() => router.push("/dashboard")}
@@ -23,22 +21,10 @@ export default function Navbar() {
         >
           Dashboard
         </button>
-        <button
-          onClick={() => router.push("/meeting")}
-          className="hover:underline"
-        >
-          Join Meeting
-        </button>
-        <button
-          onClick={() => router.push("/profile")}
-          className="hover:underline"
-        >
-          Profile
-        </button>
+
         <button
           onClick={handleLogout}
-          className="bg-white text-blue-600 px-4 py-1 
-                     rounded font-semibold"
+          className="bg-white text-blue-600 px-4 py-1 rounded font-semibold"
         >
           Logout
         </button>
