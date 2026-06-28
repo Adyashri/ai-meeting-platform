@@ -17,3 +17,4 @@ reportlab
 python-socketio
 bidict
 python-engineio
+email-validator
