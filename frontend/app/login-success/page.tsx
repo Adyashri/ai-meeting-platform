@@ -1,9 +1,7 @@
 "use client";
 
-import { Suspense } from "react";
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2 } from "lucide-react";
 
 function LoginSuccessContent() {
   const nav    = useRouter();
@@ -32,8 +30,8 @@ function LoginSuccessContent() {
     <div className="min-h-screen flex items-center justify-center"
          style={{ background: "#0f1117" }}>
       <div className="text-center">
-        <Loader2 size={32} className="animate-spin mx-auto mb-3"
-                 style={{ color: "#6b7fff" }} />
+        <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-3"
+             style={{ borderColor: "#6b7fff", borderTopColor: "transparent" }} />
         <p className="text-white font-medium">Signing you in with Google…</p>
         <p className="text-sm mt-1" style={{ color: "#8892a4" }}>Please wait</p>
       </div>
@@ -46,7 +44,8 @@ export default function LoginSuccess() {
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center"
            style={{ background: "#0f1117" }}>
-        <Loader2 size={32} className="animate-spin" style={{ color: "#6b7fff" }} />
+        <div className="w-8 h-8 border-2 rounded-full animate-spin"
+             style={{ borderColor: "#6b7fff", borderTopColor: "transparent" }} />
       </div>
     }>
       <LoginSuccessContent />
