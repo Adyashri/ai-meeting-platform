@@ -19,3 +19,5 @@ python-socketio
 bidict
 python-engineio
 email-validator
+openai-whisper
+torch
