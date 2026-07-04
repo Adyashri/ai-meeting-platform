@@ -1,5 +1,6 @@
 from passlib.context import CryptContext
 from jose import jwt, JWTError
+from jose.exceptions import ExpiredSignatureError
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from app.config import settings
@@ -24,11 +25,20 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
+
     expire = datetime.utcnow() + timedelta(
         minutes=ACCESS_TOKEN_EXPIRE_MINUTES
     )
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+    to_encode.update({
+        "exp": expire
+    })
+
+    return jwt.encode(
+        to_encode,
+        SECRET_KEY,
+        algorithm=ALGORITHM
+    )
 
 
 def decode_access_token(token: str) -> dict:
@@ -39,8 +49,17 @@ def decode_access_token(token: str) -> dict:
             algorithms=[ALGORITHM]
         )
         return payload
-    except JWTError:
+
+    except ExpiredSignatureError:
         raise HTTPException(
             status_code=401,
-            detail="Token invalid ya expire ho gaya"
+            detail="Token has expired"
+        )
+
+    except JWTError as e:
+        print(f"JWT Error: {e}")
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token"
         )

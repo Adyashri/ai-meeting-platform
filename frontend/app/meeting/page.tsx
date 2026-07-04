@@ -85,7 +85,13 @@ function MeetingPageContent() {
         if (!event.data || event.data.size === 0) return;
         if (websocketRef.current?.readyState === WebSocket.OPEN) { const buf = await event.data.arrayBuffer(); websocketRef.current.send(buf); }
       };
-      mediaRecorder.start(10000);
+      mediaRecorder.start();
+
+setInterval(() => {
+  if (mediaRecorder.state === "recording") {
+    mediaRecorder.requestData();
+  }
+}, 2000);
       mediaRecorderRef.current = mediaRecorder;
       setIsRecording(true);
       setStatus("Recording... speak now!");
