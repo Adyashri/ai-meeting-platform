@@ -74,15 +74,16 @@ function MeetingPageContent() {
       streamRef.current = stream;
       const ws = new WebSocket(`${WS_BASE}/transcription/ws/${meetingId}?speaker_name=${encodeURIComponent(userName)}`);
       ws.onopen = () => {
-         console.log("WebSocket Connected");
-         setStatus("Recording started... speak now!");
+         console.log("WS OPEN");
+         websocketRef.current = ws;
+         console.log("READY STATE:", ws.readyState);
          mediaRecorder.start(2000);
          console.log("MediaRecorder Started");
-      setIsRecording(true);
+         setIsRecording(true);
+         setStatus("Recording started... speak now!");
     };
       ws.onmessage = (event) => { try { const data = JSON.parse(event.data); if (data.text) setTranscript(prev => [...prev, `[${data.speaker}]: ${data.text}`]); } catch {} };
       ws.onerror   = () => setStatus("Transcription connection error!");
-      websocketRef.current = ws;
       let mimeType = "";
       if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) mimeType = "audio/webm;codecs=opus";
       else if (MediaRecorder.isTypeSupported("audio/webm"))        mimeType = "audio/webm";
