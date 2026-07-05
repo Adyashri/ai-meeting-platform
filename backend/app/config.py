@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:Postgres123@localhost:5432/ai_meeting_db"
     SECRET_KEY: str = "mysecretkey123456789"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     SESSION_SECRET_KEY: str = "mysessionsecret123456789"
     FRONTEND_URL: str = "http://localhost:3000"
 

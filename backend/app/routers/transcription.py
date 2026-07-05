@@ -11,6 +11,7 @@ import time
 
 router = APIRouter()
 
+
 class TranscriptCreate(BaseModel):
     meeting_id: str
     speaker_name: Optional[str] = "Unknown"
@@ -33,6 +34,9 @@ def serialize_transcript(row: Transcript):
     }
 
 
+# ================================
+# 🔥 FIXED WEBSOCKET SECTION
+# ================================
 @router.websocket("/ws/{meeting_id}")
 async def transcription_websocket(
     websocket: WebSocket,
@@ -52,14 +56,10 @@ async def transcription_websocket(
             audio_data = await websocket.receive_bytes()
 
             print(f"Audio received: {len(audio_data)} bytes")
+            print("Whisper function called")
 
             if not audio_data:
-                print("Empty audio received")
                 continue
-
-            elapsed = time.time() - start_time
-
-            print("Calling Whisper...")
 
             result = transcribe_audio(audio_data)
 
@@ -68,10 +68,13 @@ async def transcription_websocket(
             text = result.get("text", "").strip()
 
             if not text:
-                print("No text returned by Whisper")
                 continue
 
-            for seg in result.get("segments", []):
+            elapsed = time.time() - start_time
+
+            segments = result.get("encsegments", []) or result.get("segments", [])
+
+            for seg in segments:
                 seg_text = seg.get("text", "").strip()
 
                 if not seg_text:
@@ -114,6 +117,9 @@ async def transcription_websocket(
         print("WebSocket closed")
 
 
+# ================================
+# SAVE MANUAL TRANSCRIPT
+# ================================
 @router.post("/save")
 def save_transcript(
     data: TranscriptCreate,
@@ -148,6 +154,9 @@ def save_transcript(
         db.close()
 
 
+# ================================
+# GET TRANSCRIPT
+# ================================
 @router.get("/{meeting_id}")
 def get_transcript(
     meeting_id: str,
@@ -172,6 +181,9 @@ def get_transcript(
         db.close()
 
 
+# ================================
+# DELETE TRANSCRIPT
+# ================================
 @router.delete("/{meeting_id}")
 def delete_transcript(
     meeting_id: str,
