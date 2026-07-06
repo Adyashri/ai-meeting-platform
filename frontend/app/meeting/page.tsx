@@ -30,6 +30,7 @@ function MeetingPageContent() {
   const websocketRef     = useRef<WebSocket | null>(null);
   const streamRef        = useRef<MediaStream | null>(null);
   const socketRef        = useRef<Socket | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   const userName = typeof window !== "undefined" ? localStorage.getItem("userName") || "Unknown" : "Unknown";
   const userId   = typeof window !== "undefined" ? localStorage.getItem("userId")   || ""        : "";
@@ -67,21 +68,35 @@ function MeetingPageContent() {
   };
 
   const startRecording = async () => {
-    if (!meetingId || isRecording) return;
-    try {
-      setStatus("Requesting microphone...");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const ws = new WebSocket(`${WS_BASE}/transcription/ws/${meetingId}?speaker_name=${encodeURIComponent(userName)}`);
-      ws.onopen = () => {
-         console.log("WS OPEN");
-         websocketRef.current = ws;
-         console.log("READY STATE:", ws.readyState);
-         mediaRecorder.start(2000);
-         console.log("MediaRecorder Started");
-         setIsRecording(true);
-         setStatus("Recording started... speak now!");
+  if (!meetingId || isRecording) return;
+  try {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition sirf Chrome browser mein kaam karta hai.");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: any) => {
+      const result = event.results[event.results.length - 1];
+      const text = result[0].transcript.trim();
+      if (text) setTranscript(prev => [...prev, `[${userName}]: ${text}`]);
     };
+    recognition.onerror = () => setStatus("Transcription error!");
+    recognition.onend = () => { if (isRecording) recognition.start(); };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsRecording(true);
+    setStatus("Recording started... speak now!");
+  } catch {
+    alert("Please allow microphone access.");
+    setStatus("");
+  }
+};
       ws.onmessage = (event) => { try { const data = JSON.parse(event.data); if (data.text) setTranscript(prev => [...prev, `[${data.speaker}]: ${data.text}`]); } catch {} };
       ws.onerror   = () => setStatus("Transcription connection error!");
       let mimeType = "";
@@ -102,25 +117,24 @@ function MeetingPageContent() {
     console.log("WebSocket not open");
   }
 };
+
       mediaRecorderRef.current = mediaRecorder;
     } catch { alert("Please allow microphone access."); setStatus(""); }
   };
-
-  const stopRecordingOnly = async () => {
-    try {
-      const recorder = mediaRecorderRef.current;
-      if (recorder && recorder.state !== "inactive") { try { recorder.requestData(); } catch {} await new Promise(r => setTimeout(r, 500)); recorder.stop(); }
-      streamRef.current?.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-      await new Promise(r => setTimeout(r, 1200));
-      if (websocketRef.current?.readyState === WebSocket.OPEN) websocketRef.current.close();
-      mediaRecorderRef.current = null;
-      websocketRef.current     = null;
-      setIsRecording(false);
-      setStatus("Recording stopped!");
-    } catch { setStatus("Error while stopping recording"); }
-  };
-
+const stopRecordingOnly = async () => {
+  try {
+    if (recognitionRef.current) {
+      recognitionRef.current.onend = null;
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setIsRecording(false);
+    setStatus("Recording stopped!");
+  } catch {
+    setStatus("Error while stopping recording");
+  }
+};
+  
   const endMeeting = async () => {
     if (!meetingId) return;
     if (isRecording) { await stopRecordingOnly(); await new Promise(r => setTimeout(r, 1000)); }
