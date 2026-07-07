@@ -67,7 +67,27 @@ function MeetingPageContent() {
     finally { setLoading(false); }
   };
 
-  const startRecording = async () => {
+  const saveTranscriptToBackend = async (text: string) => {
+    if (!meetingId) return;
+    try {
+      const token = localStorage.getItem("token");
+      await fetch(`${API_BASE}/transcription/save`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          meeting_id: meetingId,
+          speaker_name: userName,
+          text: text,
+        }),
+      });
+    } catch (e) {
+      console.log("Transcript save failed:", e);
+    }
+  };
+const startRecording = async () => {
     if (!meetingId || isRecording) return;
     try {
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -81,10 +101,13 @@ function MeetingPageContent() {
       recognition.lang = "en-US";
 
       recognition.onresult = (event: any) => {
-        const result = event.results[event.results.length - 1];
-        const text = result[0].transcript.trim();
-        if (text) setTranscript(prev => [...prev, `[${userName}]: ${text}`]);
-      };
+      const result = event.results[event.results.length - 1];
+      const text = result[0].transcript.trim();
+      if (text) {
+        setTranscript(prev => [...prev, `[${userName}]: ${text}`]);
+        saveTranscriptToBackend(text);
+      }
+    };
       recognition.onerror = () => setStatus("Transcription error!");
       recognition.onend = () => { if (isRecording) recognition.start(); };
 
