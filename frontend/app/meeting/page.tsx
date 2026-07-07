@@ -30,7 +30,7 @@ function MeetingPageContent() {
   const websocketRef     = useRef<WebSocket | null>(null);
   const streamRef        = useRef<MediaStream | null>(null);
   const socketRef        = useRef<Socket | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef   = useRef<any>(null);
 
   const userName = typeof window !== "undefined" ? localStorage.getItem("userName") || "Unknown" : "Unknown";
   const userId   = typeof window !== "undefined" ? localStorage.getItem("userId")   || ""        : "";
@@ -68,73 +68,50 @@ function MeetingPageContent() {
   };
 
   const startRecording = async () => {
-  if (!meetingId || isRecording) return;
-  try {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Speech recognition sirf Chrome browser mein kaam karta hai.");
-      return;
+    if (!meetingId || isRecording) return;
+    try {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("Speech recognition sirf Chrome browser mein kaam karta hai.");
+        return;
+      }
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = "en-US";
+
+      recognition.onresult = (event: any) => {
+        const result = event.results[event.results.length - 1];
+        const text = result[0].transcript.trim();
+        if (text) setTranscript(prev => [...prev, `[${userName}]: ${text}`]);
+      };
+      recognition.onerror = () => setStatus("Transcription error!");
+      recognition.onend = () => { if (isRecording) recognition.start(); };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsRecording(true);
+      setStatus("Recording started... speak now!");
+    } catch {
+      alert("Please allow microphone access.");
+      setStatus("");
     }
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-
-    recognition.onresult = (event: any) => {
-      const result = event.results[event.results.length - 1];
-      const text = result[0].transcript.trim();
-      if (text) setTranscript(prev => [...prev, `[${userName}]: ${text}`]);
-    };
-    recognition.onerror = () => setStatus("Transcription error!");
-    recognition.onend = () => { if (isRecording) recognition.start(); };
-
-    recognition.start();
-    recognitionRef.current = recognition;
-    setIsRecording(true);
-    setStatus("Recording started... speak now!");
-  } catch {
-    alert("Please allow microphone access.");
-    setStatus("");
-  }
-};
-      ws.onmessage = (event) => { try { const data = JSON.parse(event.data); if (data.text) setTranscript(prev => [...prev, `[${data.speaker}]: ${data.text}`]); } catch {} };
-      ws.onerror   = () => setStatus("Transcription connection error!");
-      let mimeType = "";
-      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) mimeType = "audio/webm;codecs=opus";
-      else if (MediaRecorder.isTypeSupported("audio/webm"))        mimeType = "audio/webm";
-      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      mediaRecorder.ondataavailable = async (event) => {
-      console.log("Chunk Size:", event.data.size);
-      if (!event.data || event.data.size === 0) {
-      console.log("Empty chunk");
-      return;
-  }
-  if (websocketRef.current?.readyState === WebSocket.OPEN) {
-    const buf = await event.data.arrayBuffer();
-    websocketRef.current.send(buf);
-    console.log("Audio chunk sent");
-  } else {
-    console.log("WebSocket not open");
-  }
-};
-
-      mediaRecorderRef.current = mediaRecorder;
-    } catch { alert("Please allow microphone access."); setStatus(""); }
   };
-const stopRecordingOnly = async () => {
-  try {
-    if (recognitionRef.current) {
-      recognitionRef.current.onend = null;
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+
+  const stopRecordingOnly = async () => {
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      setIsRecording(false);
+      setStatus("Recording stopped!");
+    } catch {
+      setStatus("Error while stopping recording");
     }
-    setIsRecording(false);
-    setStatus("Recording stopped!");
-  } catch {
-    setStatus("Error while stopping recording");
-  }
-};
-  
+  };
+
   const endMeeting = async () => {
     if (!meetingId) return;
     if (isRecording) { await stopRecordingOnly(); await new Promise(r => setTimeout(r, 1000)); }
