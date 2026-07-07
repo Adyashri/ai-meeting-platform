@@ -166,6 +166,7 @@ def start_meeting(
         db.refresh(meeting)
 
         # Email notification
+        print(f"DEBUG: current_user.email = {current_user.email}")
         if current_user.email:
             background_tasks.add_task(
                 send_meeting_started_email,
