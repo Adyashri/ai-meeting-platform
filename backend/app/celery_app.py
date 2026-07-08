@@ -1,3 +1,4 @@
+import ssl
 from celery import Celery
 from app.config import settings
 
@@ -13,6 +14,6 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
-    broker_use_ssl={"ssl_cert_reqs": "CERT_NONE"},
-    redis_backend_use_ssl={"ssl_cert_reqs": "CERT_NONE"},
+    broker_use_ssl={"ssl_cert_reqs": ssl.CERT_NONE},
+    redis_backend_use_ssl={"ssl_cert_reqs": ssl.CERT_NONE},
 )
