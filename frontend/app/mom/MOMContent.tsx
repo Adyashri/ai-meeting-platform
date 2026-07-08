@@ -79,6 +79,7 @@ export default function MOMContent() {
   };
 
   const generateMOM = async (id?: string) => {
+    const generateMOM = async (id?: string) => {
     const finalId = id || meetingId;
     if (!finalId) { setError("Meeting ID missing!"); return; }
     try {
@@ -96,6 +97,13 @@ export default function MOMContent() {
         setStatus("");
         return;
       }
+
+      if (data.status === "processing") {
+        setStatus("MOM is being generated... please wait");
+        pollForMOM(finalId);
+        return;
+      }
+
       setMom(data.mom ? data.mom : data);
       setStatus("MOM generated successfully!");
     } catch {
@@ -104,6 +112,28 @@ export default function MOMContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const pollForMOM = async (id: string, attempts: number = 0) => {
+    if (attempts > 15) {
+      setStatus("");
+      setError("MOM is taking longer than expected. Please refresh in a bit.");
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`${API_BASE}/mom/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setMom(data);
+        setStatus("MOM generated successfully!");
+        return;
+      }
+    } catch {}
+    pollForMOM(id, attempts + 1);
   };
 
   const handleGenerateAll = async (id?: string) => {
