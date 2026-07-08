@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_FROM_NAME: str = "AI Meeting Platform"
     RESEND_API_KEY: str = ""
+    REDIS_URL: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

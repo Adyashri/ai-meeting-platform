@@ -11,6 +11,17 @@ from app.models.transcript import Transcript
 from app.models.mom import MOM
 from app.routers import auth, meeting, transcription, mom, download
 from app.services.socket_service import sio
+import threading
+from app.celery_app import celery_app
+
+# Celery worker ko background thread mein start karo (free tier ke liye)
+def start_celery_worker():
+    celery_app.worker_main(
+        argv=["worker", "--loglevel=info", "--pool=solo"]
+    )
+
+worker_thread = threading.Thread(target=start_celery_worker, daemon=True)
+worker_thread.start()
 
 # FastAPI app
 fastapi_app = FastAPI(
