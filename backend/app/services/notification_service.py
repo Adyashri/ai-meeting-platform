@@ -1,17 +1,10 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests
 from typing import Optional
 from app.config import settings
 
 
 def smtp_configured() -> bool:
-    return bool(
-        settings.SMTP_EMAIL
-        and settings.SMTP_PASSWORD
-        and settings.SMTP_HOST
-        and settings.SMTP_PORT
-    )
+    return bool(settings.RESEND_API_KEY)
 
 
 def send_email(
@@ -20,61 +13,57 @@ def send_email(
     body: str,
     html_body: Optional[str] = None,
 ):
-    # SMTP configure nahi hai toh silently skip karo — error mat do
     if not smtp_configured():
-        print(f"[Email skipped — SMTP not configured] To: {to_email} | Subject: {subject}")
+        print(f"[Email skipped — Resend not configured] To: {to_email} | Subject: {subject}")
         return
-
     try:
-        message = MIMEMultipart("alternative")
-        message["Subject"] = subject
-        message["From"]    = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_EMAIL}>"
-        message["To"]      = to_email
-
-        message.attach(MIMEText(body, "plain", "utf-8"))
-        if html_body:
-            message.attach(MIMEText(html_body, "html", "utf-8"))
-
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-            server.starttls()
-            server.login(settings.SMTP_EMAIL, settings.SMTP_PASSWORD)
-            server.sendmail(settings.SMTP_EMAIL, [to_email], message.as_string())
-
-        print(f"[Email sent] To: {to_email} | Subject: {subject}")
-
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"},
+            json={
+                "from": "AI Meeting Platform <onboarding@resend.dev>",
+                "to": [to_email],
+                "subject": subject,
+                "html": html_body if html_body else f"<p>{body}</p>",
+            },
+            timeout=10,
+        )
+        if response.status_code in (200, 201):
+            print(f"[Email sent] To: {to_email} | Subject: {subject}")
+        else:
+            print(f"[Email error] Status: {response.status_code} | {response.text}")
     except Exception as e:
-        # Email fail ho toh bhi app crash mat karo
         print(f"[Email error — skipped] {e}")
 
 
 def send_meeting_started_email(to_email: str, meeting_title: str, room_code: str):
     subject = f"Meeting Started: {meeting_title}"
     body = (
-        f"Hello,\n\n"
-        f"Your meeting '{meeting_title}' has started.\n"
-        f"Room Code: {room_code}\n\n"
-        f"Regards,\nAI Meeting Platform"
+        f"Hello,<br><br>"
+        f"Your meeting '{meeting_title}' has started.<br>"
+        f"Room Code: {room_code}<br><br>"
+        f"Regards,<br>AI Meeting Platform"
     )
-    send_email(to_email, subject, body)
+    send_email(to_email, subject, body, html_body=body)
 
 
 def send_meeting_ended_email(to_email: str, meeting_title: str):
     subject = f"Meeting Ended: {meeting_title}"
     body = (
-        f"Hello,\n\n"
-        f"Your meeting '{meeting_title}' has ended.\n"
-        f"You can now generate MOM / export transcript from the platform.\n\n"
-        f"Regards,\nAI Meeting Platform"
+        f"Hello,<br><br>"
+        f"Your meeting '{meeting_title}' has ended.<br>"
+        f"You can now generate MOM / export transcript from the platform.<br><br>"
+        f"Regards,<br>AI Meeting Platform"
     )
-    send_email(to_email, subject, body)
+    send_email(to_email, subject, body, html_body=body)
 
 
 def send_mom_ready_email(to_email: str, meeting_title: str):
     subject = f"MOM Ready: {meeting_title}"
     body = (
-        f"Hello,\n\n"
-        f"Minutes of Meeting for '{meeting_title}' are ready.\n"
-        f"Please open the platform to view/download them.\n\n"
-        f"Regards,\nAI Meeting Platform"
+        f"Hello,<br><br>"
+        f"Minutes of Meeting for '{meeting_title}' are ready.<br>"
+        f"Please open the platform to view/download them.<br><br>"
+        f"Regards,<br>AI Meeting Platform"
     )
-    send_email(to_email, subject, body)
+    send_email(to_email, subject, body, html_body=body)
