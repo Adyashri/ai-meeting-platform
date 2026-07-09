@@ -79,7 +79,6 @@ export default function MOMContent() {
   };
 
   const generateMOM = async (id?: string) => {
-    const generateMOM = async (id?: string) => {
     const finalId = id || meetingId;
     if (!finalId) { setError("Meeting ID missing!"); return; }
     try {
