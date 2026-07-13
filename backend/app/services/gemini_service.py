@@ -281,7 +281,8 @@ Transcript:
         print("Gemini MOM generation error:", e)
         return build_fallback_mom(transcript_text, meeting_title, attendees)
 
-        def get_live_suggestion(transcript_text: str, meeting_title: str) -> dict:
+
+def get_live_suggestion(transcript_text: str, meeting_title: str) -> dict:
     """
     Meeting live chalte waqt, abhi tak ka transcript dekh kar
     host ko ek chota useful suggestion deta hai.
