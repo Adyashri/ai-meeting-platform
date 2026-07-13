@@ -9,12 +9,12 @@ from app.models.user import User
 from app.models.meeting import Meeting
 from app.models.transcript import Transcript
 from app.models.mom import MOM
-from app.routers import auth, meeting, transcription, mom, download
+from app.routers import auth, meeting, transcription, mom, download, assistant
 from app.services.socket_service import sio
 import threading
 from app.celery_app import celery_app
 
-# Celery worker ko background thread mein start karo (free tier ke liye)
+# Start Celery worker in a background thread (needed for free tier)
 def start_celery_worker():
     celery_app.worker_main(
         argv=["worker", "--loglevel=info", "--pool=solo"]
@@ -58,6 +58,7 @@ fastapi_app.include_router(meeting.router,        prefix="/meeting",       tags=
 fastapi_app.include_router(transcription.router,  prefix="/transcription", tags=["Transcription"])
 fastapi_app.include_router(mom.router,            prefix="/mom",           tags=["MOM"])
 fastapi_app.include_router(download.router,       prefix="/download",      tags=["Download"])
+fastapi_app.include_router(assistant.router,      prefix="/assistant",     tags=["AI Assistant"])
 
 # Database tables
 Base.metadata.create_all(bind=engine)
@@ -70,7 +71,7 @@ def root():
 def health_check():
     return {"status": "ok"}
 
-# Socket.io + FastAPI combine karo
+# Combine Socket.io with FastAPI
 socket_app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)
 
 # Main app — uvicorn ye chalayega

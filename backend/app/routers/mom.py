@@ -49,7 +49,7 @@ def generate_meeting_mom(
         if not meeting:
             raise HTTPException(404, "Meeting not found")
 
-        # Celery task ko background mein queue karo
+        # Queue the Celery task in the background
         generate_mom_task.delay(meeting_id, current_user.email)
 
         return {

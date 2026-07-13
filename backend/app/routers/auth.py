@@ -212,7 +212,7 @@ async def google_callback(request: Request):
                 detail="Google did not provide email"
             )
 
-        # User exists? Login. Nahi? Register.
+        # Check if user already exists
         user = db.query(User).filter(User.email == email).first()
         if not user:
             user = User(
@@ -226,7 +226,7 @@ async def google_callback(request: Request):
 
         access_token = create_access_token(data={"user_id": user.id})
 
-        # Frontend pe redirect karo token ke saath
+        # Redirect to frontend
         redirect_url = (
             f"{settings.FRONTEND_URL}/login-success"
             f"?token={quote(access_token)}"

@@ -92,7 +92,7 @@ const startRecording = async () => {
     try {
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        alert("Speech recognition sirf Chrome browser mein kaam karta hai.");
+        alert("Speech recognition only works in the Chrome browser.");
         return;
       }
       const recognition = new SpeechRecognition();

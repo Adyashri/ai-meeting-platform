@@ -55,8 +55,8 @@ def extract_json_from_response(raw_text: str) -> dict:
 
 def build_fallback_mom(transcript_text: str, meeting_title: str, attendees: List[str]) -> Dict[str, Any]:
     """
-    Gemini fail ho jaye to bhi transcript-based MOM do.
-    Generic bakwaas summary nahi.
+    Provide transcript-based MOM even if Gemini fails.
+    No generic nonsense summary.
     """
     attendees_text = ", ".join(attendees) if attendees else "Unknown"
 
@@ -98,7 +98,7 @@ def build_fallback_mom(transcript_text: str, meeting_title: str, attendees: List
                 "reason": "Mentioned in transcript"
             })
 
-    # fallback agar kuch bhi extract na hua
+    # Very lightweight heuristic extraction (fallback if nothing matches)
     if not key_discussions and transcript_text:
         key_discussions.append({
             "topic": "Meeting Discussion",
@@ -184,7 +184,7 @@ def normalize_mom_data(data: dict) -> dict:
 
 def generate_mom(transcript_text: str, meeting_title: str, attendees: list[str]):
     """
-    Transcript se structured MOM generate karo.
+    Generate structured MOM from the transcript.
     """
     attendees_text = ", ".join(attendees) if attendees else "Unknown"
     transcript_text = clean_transcript_text(transcript_text)
@@ -269,7 +269,7 @@ Transcript:
         ):
             return build_fallback_mom(transcript_text, meeting_title, attendees)
 
-        # summary blank ho to fallback summary inject karo
+        # Inject fallback summary if summary is blank
         if not data["summary"]:
             data["summary"] = build_fallback_mom(
                 transcript_text, meeting_title, attendees
@@ -280,3 +280,39 @@ Transcript:
     except Exception as e:
         print("Gemini MOM generation error:", e)
         return build_fallback_mom(transcript_text, meeting_title, attendees)
+
+        def get_live_suggestion(transcript_text: str, meeting_title: str) -> dict:
+    """
+    Meeting live chalte waqt, abhi tak ka transcript dekh kar
+    host ko ek chota useful suggestion deta hai.
+    """
+    transcript_text = clean_transcript_text(transcript_text)
+
+    if not transcript_text or len(transcript_text) < 30:
+        return {"suggestion": "Waiting for more discussion..."}
+
+    prompt = f"""
+You are a live meeting assistant watching an ongoing meeting titled "{meeting_title}".
+
+Below is the transcript so far. In ONE short sentence (under 20 words), give the host
+a helpful real-time suggestion. Examples of useful suggestions:
+- Point out if discussion has gone off-topic
+- Suggest wrapping up if the same topic has been discussed too long
+- Suggest noting down a decision that was just made
+
+If nothing notable, just say "Discussion is on track."
+
+Transcript so far:
+{transcript_text}
+
+Respond with ONLY the one-sentence suggestion, nothing else.
+"""
+
+    try:
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        response = model.generate_content(prompt)
+        suggestion = (response.text or "").strip()
+        return {"suggestion": suggestion or "Discussion is on track."}
+    except Exception as e:
+        print("Live suggestion error:", e)
+        return {"suggestion": "Discussion is on track."}

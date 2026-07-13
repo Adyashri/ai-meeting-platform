@@ -2,7 +2,7 @@ import socketio
 from app.database import SessionLocal
 from app.models.meeting import Meeting
 
-# Socket.io server banao
+# Create Socket.io server
 sio = socketio.AsyncServer(
     async_mode="asgi",
     cors_allowed_origins="*",
@@ -10,7 +10,7 @@ sio = socketio.AsyncServer(
     engineio_logger=False
 )
 
-# Connected users track karo
+# Track connected users
 # { room_code: [{ sid, user_name, user_id }] }
 room_participants: dict = {}
 
@@ -29,20 +29,20 @@ async def connect(sid, environ):
 @sio.event
 async def disconnect(sid):
     print(f"[Socket] Disconnected: {sid}")
-    # Sab rooms se remove karo
+    # Remove from all rooms
     for room_code in list(room_participants.keys()):
         participants = room_participants[room_code]
         user = next((p for p in participants if p["sid"] == sid), None)
         if user:
             participants.remove(user)
             print(f"[Socket] {user['user_name']} left room {room_code}")
-            # Baaki sabko batao
+            # Notify everyone else
             await sio.emit("user_left", {
                 "user_name": user["user_name"],
                 "user_id":   user["user_id"],
                 "participants": participants,
             }, room=room_code)
-            # Room empty ho gaya toh delete karo
+            # If room is empty
             if not participants:
                 del room_participants[room_code]
             break
@@ -61,7 +61,7 @@ async def join_room(sid, data):
         await sio.emit("error", {"message": "Room code missing"}, to=sid)
         return
 
-    # Meeting DB mein check karo
+    # Update meeting status in DB
     db = SessionLocal()
     try:
         meeting = db.query(Meeting).filter(
@@ -74,14 +74,14 @@ async def join_room(sid, data):
     finally:
         db.close()
 
-    # Socket room join karo
+    # Join the socket room
     await sio.enter_room(sid, room_code)
 
-    # Participant add karo
+    # Add participant
     if room_code not in room_participants:
         room_participants[room_code] = []
 
-    # Pehle se join hai toh update karo
+    # Check if already joined
     existing = next((p for p in room_participants[room_code] if p["sid"] == sid), None)
     if not existing:
         room_participants[room_code].append({
@@ -93,7 +93,7 @@ async def join_room(sid, data):
     participants = room_participants[room_code]
     print(f"[Socket] {user_name} joined room {room_code} — {len(participants)} participants")
 
-    # Joining user ko confirm karo
+    # Notify joining user
     await sio.emit("room_joined", {
         "room_code":    room_code,
         "meeting_id":   meeting_id,

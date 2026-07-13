@@ -11,7 +11,7 @@ class MOM(Base):
                              default=lambda: str(uuid.uuid4()))
     meeting_id      = Column(String, nullable=False, index=True)
     summary         = Column(Text,   nullable=True)
-    # JSON strings — list ko json.dumps se store karo
+    # JSON strings — lists are stored using json.dumps
     key_discussions = Column(Text,   nullable=True, default="[]")
     decisions       = Column(Text,   nullable=True, default="[]")
     action_items    = Column(Text,   nullable=True, default="[]")
